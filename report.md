@@ -1,3 +1,4 @@
+# Exercise 1 by Benedict Allerberger and Matthias Sparr
 # Subtask 1: A naive implementation
 - [X]
 # Subtask 2: Deadlock prevention
