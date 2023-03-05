@@ -12,13 +12,51 @@
 #include <signal.h>
 
 std::atomic<bool> running(true);
+std::vector<std::mutex> forks;
 
 void signal_handler(int sig) {
     if (sig == 1 || sig == 2 || sig == 3) {
         running = false;
     }
-    exit(1);
 }
+
+void think(int time, int id)
+{
+    std::this_thread::sleep_for(std::chrono::milliseconds(time));
+    std::cout<< "Philosopher " << id << " finished thinking!" << std::endl;
+}
+
+void eat(int time, int id)
+{
+    std::this_thread::sleep_for(std::chrono::milliseconds(time));
+    std::cout<< "Philosopher " << id << " is done eating!" << std::endl;
+}
+
+int grabForks(int firstFork, int  secondFork, int id)
+{
+    std::chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();
+    while(!forks[firstFork].try_lock())
+    {
+        // waiting for fork                
+    }
+    std::cout<< "Philosopher " << id << " took first fork " <<  firstFork  << std::endl;
+
+    while(!forks[secondFork].try_lock())
+    {
+        // waiting for fork
+    }
+    std::cout<< "Philosopher " << id << " took second fork " <<  secondFork  << std::endl;
+    std::chrono::steady_clock::time_point end = std::chrono::steady_clock::now();
+
+    return std::chrono::duration_cast<std::chrono::microseconds>(end - begin).count();
+}
+
+void putBackForks(int firstFork, int secondFork)
+{
+    forks[firstFork].unlock();
+    forks[secondFork].unlock();
+}
+
 
 int main(void)
 {
@@ -28,9 +66,12 @@ int main(void)
     sigIntHandler.sa_flags = 0;
     sigaction(SIGINT, &sigIntHandler, NULL);
 
+    std::chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();
+    
     int philosophers = 0;
     int thinkingTime = 0;
     int eatingTime = 0;
+    int waitingTime = 0;
 
     std::cout<< "Enter the number of philosophers: " << std::endl;
     std::cin >> philosophers;
@@ -45,11 +86,10 @@ int main(void)
 
     omp_set_num_threads(philosophers);
 
-    std::vector<std::mutex> forks;
     std::vector<std::mutex> list(philosophers);
     forks.swap(list);
 
-    #pragma omp parallel
+    #pragma omp parallel reduction(+:waitingTime)
     {
         while(running.load())
         {
@@ -59,39 +99,34 @@ int main(void)
             int leftForkIndex = (id + 1) % philosophers;
             int rightForkIndex = id;
 
-            int _thinkTime = rand() % thinkingTime;
-            std::this_thread::sleep_for(std::chrono::milliseconds(_thinkTime));
-            std::cout<< "Philosopher " << id << " finished thinking!" << std::endl;
+            int myThinkTime = rand() % thinkingTime;
+            think(myThinkTime, id);
 
-            while(!forks[leftForkIndex].try_lock())
+            if(id % 2 == 1)
             {
-                // waiting for fork                
-            }
-            std::cout<< "Philosopher " << id << " took first fork " <<  leftForkIndex  << std::endl;
-
-            while(!forks[rightForkIndex].try_lock())
-            {
-                // waiting for fork
-            }
-            std::cout<< "Philosopher " << id << " took second fork " <<  rightForkIndex  << std::endl;
-
-            int _eatTime = rand() % eatingTime;
-            std::this_thread::sleep_for(std::chrono::milliseconds(_eatTime));
-            std::cout<< "Philosopher " << id << " is done eating!" << std::endl;
-
-
-            if(rand() % 2 == 0)
-            {
-                forks[leftForkIndex].unlock();
-                forks[rightForkIndex].unlock();
+                waitingTime += grabForks(leftForkIndex, rightForkIndex, id);
             }
             else
             {
-                forks[rightForkIndex].unlock();
-                forks[leftForkIndex].unlock();
+                waitingTime += grabForks(rightForkIndex, leftForkIndex, id);
+            }    
+
+            int myEatTime = rand() % eatingTime;
+            eat(myEatTime, id);
+
+            if(rand() % 2 == 0)
+            {
+                putBackForks(leftForkIndex, rightForkIndex);
+            }
+            else
+            {
+                putBackForks(rightForkIndex, leftForkIndex);
             }
         } 
     }
-    std::cout<< "done";
+    std::chrono::steady_clock::time_point end = std::chrono::steady_clock::now();
+    std::cout << "Total runtime = " << std::chrono::duration_cast<std::chrono::microseconds>(end - begin).count() << "[µs]" << std::endl;
+    std::cout << "Total Time spent waiting = " << waitingTime << "[µs]" << std::endl;
+    std::cout << "Avg Time spent waiting per philosopher = " << waitingTime / philosophers << "[µs]" << std::endl;
     
 }
